@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>EPS Badminton V5 - Analyse Complète</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root {
+            --court-green: #2d5a27;
+            --line-white: rgba(255, 255, 255, 0.9);
+        }
+        body { touch-action: manipulation; }
+        
+        .court-container {
+            position: relative;
+            background-color: var(--court-green);
+            aspect-ratio: 2 / 1;
+            width: 100%;
+            max-width: 700px;
+            margin: 0 auto;
+            border: 4px solid #1a3a17;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+        
+        .court-line { position: absolute; background-color: var(--line-white); }
+        
+        .impact-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid white;
+            z-index: 30;
+            pointer-events: none;
+        }
+
+        /* Zones sur la longueur (couloirs latéraux en haut et en bas) */
+        .lateral-zone-h {
+            position: absolute;
+            left: 0;
+            right: 0;
+            background-color: rgba(255, 255, 0, 0.15);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #zoneTop { top: 0; border-bottom: 1px dashed #fbbf24; }
+        #zoneBottom { bottom: 0; border-top: 1px dashed #fbbf24; }
+        
+        .hidden { display: none; }
+        
+        /* Slider Styling */
+        .range-wrapper {
+            position: relative;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            height: 32px;
+        }
+        .range-line-bg {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #475569;
+            z-index: 0;
+        }
+        input[type=range] {
+            position: relative;
+            height: 32px;
+            -webkit-appearance: none;
+            background: transparent;
+            width: 100%;
+            z-index: 10;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 24px;
+            width: 8px;
+            border-radius: 2px;
+            background: #fbbf24; 
+            -webkit-appearance: none;
+            border: 1px solid #92400e;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+    <!-- ECRAN 1 : SETUP -->
+    <div id="setupScreen" class="max-w-md mx-auto p-6 pt-12">
+        <div class="text-center mb-10">
+            <h1 class="text-3xl font-black text-blue-400 uppercase tracking-tighter">BAD-PRO V5</h1>
+            <p class="text-slate-500 text-xs uppercase tracking-[0.2em]">Poule de 4 • Horizontal</p>
+        </div>
+        
+        <div class="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4">
+            <div class="space-y-3">
+                <input type="text" id="p1" placeholder="Joueur 1" class="w-full p-4 bg-slate-900 border border-slate-700 rounded-xl outline-none focus:border-blue-500">
+                <input type="text" id="p2" placeholder="Joueur 2" class="w-full p-4 bg-slate-900 border border-slate-700 rounded-xl outline-none focus:border-blue-500">
+                <input type="text" id="p3" placeholder="Joueur 3" class="w-full p-4 bg-slate-900 border border-slate-700 rounded-xl outline-none focus:border-blue-500">
+                <input type="text" id="p4" placeholder="Joueur 4" class="w-full p-4 bg-slate-900 border border-slate-700 rounded-xl outline-none focus:border-blue-500">
+            </div>
+            <button onclick="startTournament()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl shadow-lg uppercase text-sm tracking-widest transition-all">Lancer le tournoi</button>
+        </div>
+    </div>
+
+    <!-- ECRAN 2 : LISTE MATCHS -->
+    <div id="tournamentScreen" class="hidden max-w-2xl mx-auto p-6">
+        <div class="flex justify-between items-end mb-8">
+            <div>
+                <h2 class="text-2xl font-black text-white uppercase italic">Planning des Matchs</h2>
+                <p class="text-slate-500 text-xs uppercase tracking-widest">Poule unique</p>
+            </div>
+            <button onclick="backToSetup()" class="text-[10px] text-slate-500 underline uppercase hover:text-red-400">Réinitialiser</button>
+        </div>
+        <div id="matchList" class="grid gap-4"></div>
+    </div>
+
+    <!-- ECRAN 3 : MATCH INTERFACE -->
+    <div id="matchInterface" class="hidden min-h-screen flex flex-col">
+        <header class="bg-slate-800 border-b border-slate-700 p-3 flex justify-between items-center sticky top-0 z-50">
+            <div class="flex items-center gap-4">
+                <button onclick="closeMatch()" class="bg-slate-900 p-2 rounded-lg text-blue-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <div>
+                    <div id="timerDisplay" class="text-xl font-mono font-bold text-emerald-400 leading-none">00:00</div>
+                    <div id="rolesDisplay" class="text-[9px] text-slate-500 font-bold uppercase mt-1"></div>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="toggleTimer()" id="timerBtn" class="bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs uppercase flex items-center gap-2">
+                    <span id="timerLabel">Démarrer</span>
+                </button>
+                <button onclick="exportToPDF()" class="bg-slate-700 px-4 py-2 rounded-lg font-bold text-xs uppercase">PDF</button>
+            </div>
+        </header>
+
+        <main class="flex-grow p-3 flex flex-col gap-4">
+            
+            <!-- Zone Joueurs et Terrain -->
+            <div class="flex flex-col lg:flex-row gap-4 items-start justify-center">
+                
+                <!-- Bloc Joueur A (Gauche) -->
+                <div class="w-full lg:w-64 bg-slate-800 p-4 rounded-2xl border-l-4 border-blue-500 shadow-xl order-2 lg:order-1">
+                    <div id="nameA" class="font-black text-blue-400 uppercase text-lg mb-3 truncate"></div>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="flex justify-between items-end border-b border-slate-700 pb-2">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase">Précision</span>
+                            <span id="percA" class="text-xl font-mono text-amber-400 font-bold">0%</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-400">Impacts</span>
+                            <span id="countA" class="font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-red-400">Fautes</span>
+                            <span id="faultCountA" class="font-bold text-red-500">0</span>
+                        </div>
+                        <div class="flex gap-1 mt-2">
+                            <button onclick="addFault('A')" class="flex-grow py-2 bg-red-600/20 text-red-500 border border-red-600/30 rounded text-[9px] font-black uppercase">Fautes +</button>
+                            <button onclick="removeFault('A')" class="px-3 py-2 bg-slate-700 text-slate-300 rounded text-[9px] font-black uppercase">Annuler</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terrain Horizontal au centre -->
+                <div class="flex-grow max-w-3xl w-full order-1 lg:order-2">
+                    <div class="court-container" id="court" onclick="handleCourtClick(event)">
+                        <!-- Lignes de pourtour -->
+                        <div class="court-line w-full h-0.5 top-0"></div>
+                        <div class="court-line w-full h-0.5 bottom-0"></div>
+                        <div class="court-line w-0.5 h-full left-0"></div>
+                        <div class="court-line w-0.5 h-full right-0"></div>
+                        
+                        <!-- Filet (Ligne centrale) -->
+                        <div class="court-line w-0.5 h-full left-1/2 -translate-x-1/2 opacity-80 shadow-[0_0_10px_white]"></div>
+                        
+                        <!-- Lignes badminton couloirs -->
+                        <div class="court-line w-full h-0.5 top-[6%] opacity-40"></div>
+                        <div class="court-line w-full h-0.5 bottom-[6%] opacity-40"></div>
+                        <div class="court-line w-full h-0.5 top-[35%] opacity-30"></div>
+                        <div class="court-line w-full h-0.5 bottom-[35%] opacity-30"></div>
+                        <div class="court-line w-0.5 h-full left-[10%] opacity-30"></div>
+                        <div class="court-line w-0.5 h-full right-[10%] opacity-30"></div>
+
+                        <!-- Zones dynamiques sur la LONGUEUR (Haut/Bas) -->
+                        <div id="zoneTop" class="lateral-zone-h" style="height: 15%;"></div>
+                        <div id="zoneBottom" class="lateral-zone-h" style="height: 15%;"></div>
+                    </div>
+                </div>
+
+                <!-- Bloc Joueur B (Droite) -->
+                <div class="w-full lg:w-64 bg-slate-800 p-4 rounded-2xl border-r-4 border-red-500 shadow-xl order-3">
+                    <div id="nameB" class="font-black text-red-500 uppercase text-lg text-right mb-3 truncate"></div>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="flex justify-between items-end border-b border-slate-700 pb-2">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase">Précision</span>
+                            <span id="percB" class="text-xl font-mono text-amber-400 font-bold">0%</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-400">Impacts</span>
+                            <span id="countB" class="font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-red-400">Fautes</span>
+                            <span id="faultCountB" class="font-bold text-red-500">0</span>
+                        </div>
+                        <div class="flex gap-1 mt-2">
+                            <button onclick="addFault('B')" class="flex-grow py-2 bg-red-600/20 text-red-500 border border-red-600/30 rounded text-[9px] font-black uppercase">Fautes +</button>
+                            <button onclick="removeFault('B')" class="px-3 py-2 bg-slate-700 text-slate-300 rounded text-[9px] font-black uppercase">Annuler</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contrôles Bas -->
+            <div class="max-w-4xl mx-auto w-full flex flex-col md:flex-row gap-4 items-center bg-slate-800/50 p-4 rounded-2xl border border-slate-700">
+                <button onclick="undo()" class="p-4 bg-slate-900 rounded-xl border border-slate-700 active:scale-95 text-slate-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                </button>
+                
+                <div class="flex-grow w-full space-y-2">
+                    <div class="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <span>Largeur de la Zone Cible (Couloirs Latéraux)</span>
+                        <span id="zoneValDisplay" class="bg-slate-900 px-3 py-1 rounded text-amber-400 border border-slate-700">15%</span>
+                    </div>
+                    <div class="range-wrapper">
+                        <div class="range-line-bg"></div>
+                        <input type="range" min="5" max="30" value="15" id="zoneRange" oninput="updateZone(this.value)">
+                    </div>
+                </div>
+                
+                <button onclick="finishMatch()" class="w-full md:w-auto px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl uppercase text-xs shadow-lg transition-colors">Valider le Match</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let tournament = { players: [], matches: [], currentMatchIndex: null };
+        let activeMatchState = null;
+        let zoneSize = 15;
+        let timerInterval = null;
+
+        function startTournament() {
+            const names = [
+                document.getElementById('p1').value || "Joueur 1",
+                document.getElementById('p2').value || "Joueur 2",
+                document.getElementById('p3').value || "Joueur 3",
+                document.getElementById('p4').value || "Joueur 4"
+            ];
+            tournament.players = names;
+            
+            const schedule = [
+                {a: 0, b: 1, j: 2, o: 3}, {a: 2, b: 3, j: 0, o: 1},
+                {a: 0, b: 2, j: 1, o: 3}, {a: 1, b: 3, j: 2, o: 0},
+                {a: 0, b: 3, j: 1, o: 2}, {a: 1, b: 2, j: 3, o: 0}
+            ];
+
+            tournament.matches = schedule.map((s, idx) => ({
+                id: idx,
+                p1: names[s.a], p2: names[s.b],
+                judge: names[s.j], observer: names[s.o],
+                impacts: [],
+                faults: {A: 0, B: 0},
+                timer: 0,
+                status: 'pending'
+            }));
+
+            renderMatchList();
+            showScreen('tournamentScreen');
+        }
+
+        function renderMatchList() {
+            const container = document.getElementById('matchList');
+            container.innerHTML = tournament.matches.map((m, idx) => `
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex items-center justify-between shadow-lg ${m.status === 'finished' ? 'border-emerald-500/30 bg-slate-800/50' : ''}">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-0.5 bg-slate-900 rounded text-[9px] font-black text-slate-500 uppercase tracking-tighter">Match ${idx + 1}</span>
+                            ${m.status === 'finished' ? '<span class="text-[9px] font-black text-emerald-500 uppercase italic tracking-widest">Terminé</span>' : ''}
+                        </div>
+                        <div class="flex items-center gap-3 text-lg font-black uppercase italic">
+                            <span class="text-blue-400">${m.p1}</span>
+                            <span class="text-slate-600 text-xs">VS</span>
+                            <span class="text-red-500">${m.p2}</span>
+                        </div>
+                        <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+                            <div class="text-[10px] text-slate-400 uppercase font-bold">Arbitre : <span class="text-white">${m.judge}</span></div>
+                            <div class="text-[10px] text-slate-400 uppercase font-bold">Observateur : <span class="text-white">${m.observer}</span></div>
+                        </div>
+                    </div>
+                    <button onclick="launchMatch(${idx})" 
+                        class="ml-4 px-6 py-3 ${m.status === 'finished' ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white'} text-[10px] font-black rounded-xl uppercase transition-transform active:scale-95 shadow-md">
+                        ${m.status === 'finished' ? 'Consulter' : 'Lancer'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function launchMatch(index) {
+            tournament.currentMatchIndex = index;
+            activeMatchState = JSON.parse(JSON.stringify(tournament.matches[index])); 
+            
+            document.getElementById('nameA').innerText = activeMatchState.p1;
+            document.getElementById('nameB').innerText = activeMatchState.p2;
+            document.getElementById('rolesDisplay').innerText = `Arbitre : ${activeMatchState.judge} • Obs : ${activeMatchState.observer}`;
+            
+            document.querySelectorAll('.impact-dot').forEach(d => d.remove());
+            activeMatchState.impacts.forEach(renderImpact);
+            
+            updateTimerDisplay();
+            updateZone(zoneSize);
+            showScreen('matchInterface');
+        }
+
+        function handleCourtClick(e) {
+            const rect = court.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            
+            // Attaquant basé sur l'axe X (Horizontal : gauche vs droite)
+            const attackingPlayer = x > 50 ? 'A' : 'B';
+
+            const impact = {
+                id: Date.now(),
+                player: attackingPlayer,
+                x: x,
+                y: y,
+                // Zone de réussite sur la LONGUEUR (Y)
+                inZone: y < zoneSize || y > (100 - zoneSize)
+            };
+
+            activeMatchState.impacts.push(impact);
+            renderImpact(impact);
+            calculateStats();
+            if ("vibrate" in navigator) navigator.vibrate(30);
+        }
+
+        function renderImpact(imp) {
+            const dot = document.createElement('div');
+            dot.id = `dot-${imp.id}`;
+            dot.className = `impact-dot ${imp.player === 'A' ? 'bg-blue-500' : 'bg-red-500'}`;
+            dot.style.left = `${imp.x}%`;
+            dot.style.top = `${imp.y}%`;
+            document.getElementById('court').appendChild(dot);
+        }
+
+        function updateZone(val) {
+            zoneSize = parseInt(val);
+            document.getElementById('zoneValDisplay').innerText = val + '%';
+            document.getElementById('zoneTop').style.height = val + '%';
+            document.getElementById('zoneBottom').style.height = val + '%';
+            
+            // Recalculer la réussite des impacts existants
+            activeMatchState.impacts = activeMatchState.impacts.map(imp => ({
+                ...imp,
+                inZone: imp.y < zoneSize || imp.y > (100 - zoneSize)
+            }));
+            calculateStats();
+        }
+
+        function calculateStats() {
+            ['A', 'B'].forEach(p => {
+                const pImpacts = activeMatchState.impacts.filter(i => i.player === p);
+                const count = pImpacts.length;
+                const inZoneCount = pImpacts.filter(i => i.inZone).length;
+                const ratio = count > 0 ? Math.round((inZoneCount / count) * 100) : 0;
+                
+                document.getElementById(`perc${p}`).innerText = `${ratio}%`;
+                document.getElementById(`count${p}`).innerText = count;
+                document.getElementById(`faultCount${p}`).innerText = activeMatchState.faults[p];
+            });
+        }
+
+        function addFault(p) { activeMatchState.faults[p]++; calculateStats(); }
+        function removeFault(p) { 
+            activeMatchState.faults[p] = Math.max(0, activeMatchState.faults[p] - 1); 
+            calculateStats(); 
+        }
+
+        function undo() {
+            const last = activeMatchState.impacts.pop();
+            if (last) {
+                document.getElementById(`dot-${last.id}`)?.remove();
+                calculateStats();
+            }
+        }
+
+        function toggleTimer() {
+            const btn = document.getElementById('timerBtn');
+            const label = document.getElementById('timerLabel');
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                btn.className = "bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs uppercase";
+                label.innerText = "Reprendre";
+            } else {
+                timerInterval = setInterval(() => {
+                    activeMatchState.timer++;
+                    updateTimerDisplay();
+                }, 1000);
+                btn.className = "bg-red-600 px-4 py-2 rounded-lg font-bold text-xs uppercase animate-pulse";
+                label.innerText = "Pause";
+            }
+        }
+
+        function updateTimerDisplay() {
+            const m = Math.floor(activeMatchState.timer / 60).toString().padStart(2, '0');
+            const s = (activeMatchState.timer % 60).toString().padStart(2, '0');
+            document.getElementById('timerDisplay').innerText = `${m}:${s}`;
+        }
+
+        function showScreen(id) {
+            ['setupScreen', 'tournamentScreen', 'matchInterface'].forEach(s => {
+                document.getElementById(s).classList.add('hidden');
+            });
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function closeMatch() {
+            if (timerInterval) toggleTimer();
+            tournament.matches[tournament.currentMatchIndex] = JSON.parse(JSON.stringify(activeMatchState));
+            showScreen('tournamentScreen');
+            renderMatchList();
+        }
+
+        function finishMatch() {
+            activeMatchState.status = 'finished';
+            closeMatch();
+        }
+
+        function backToSetup() {
+            if(confirm("Effacer toutes les données et recommencer ?")) location.reload();
+        }
+
+        function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const m = activeMatchState;
+            doc.setFontSize(20);
+            doc.text(`BILAN BAD-PRO V5`, 20, 20);
+            doc.setFontSize(14);
+            doc.text(`Match : ${m.p1} vs ${m.p2}`, 20, 35);
+            doc.text(`Arbitre : ${m.judge} | Obs : ${m.observer}`, 20, 45);
+            doc.text(`Temps : ${document.getElementById('timerDisplay').innerText}`, 20, 55);
+            doc.text(`------------------------------------------------`, 20, 65);
+            doc.text(`RESULTATS ${m.p1} :`, 20, 80);
+            doc.text(`- Precision : ${document.getElementById('percA').innerText}`, 30, 90);
+            doc.text(`- Impacts : ${document.getElementById('countA').innerText}`, 30, 100);
+            doc.text(`- Fautes : ${document.getElementById('faultCountA').innerText}`, 30, 110);
+            doc.text(`RESULTATS ${m.p2} :`, 20, 130);
+            doc.text(`- Precision : ${document.getElementById('percB').innerText}`, 30, 140);
+            doc.text(`- Impacts : ${document.getElementById('countB').innerText}`, 30, 150);
+            doc.text(`- Fautes : ${document.getElementById('faultCountB').innerText}`, 30, 160);
+            doc.save(`Bilan_Badminton_${m.p1}_${m.p2}.pdf`);
+        }
+    </script>
+</body>
+</html>
